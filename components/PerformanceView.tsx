@@ -442,6 +442,19 @@ export default function PerformanceView({
         </div>
       </div>
 
+      {/* ---------------------------------------------------- */}
+      {/* SECTION 5: OVERALL SUMMARY                           */}
+      {/* ---------------------------------------------------- */}
+      <div className="card" style={{ padding: "28px", borderRadius: "16px", border: "1px solid #e2e8f0", background: "#ffffff", boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)", marginTop: "24px" }}>
+        <div className="card-title" style={{ fontSize: "1.25rem", fontWeight: 800, color: "#1e293b", display: "flex", alignItems: "center", gap: "10px", borderBottom: "1px solid #f1f5f9", paddingBottom: "16px", marginBottom: "20px" }}>
+          <span style={{ fontSize: "24px" }}>📊</span>
+          OVERALL SUMMARY
+        </div>
+        <div>
+          <img src="/33.83%20LAKH.png" alt="PMS Budget Utilization Summary" style={{ width: "100%", borderRadius: "12px", border: "1px solid #e2e8f0" }} />
+        </div>
+      </div>
+
     </div>
   );
 }
