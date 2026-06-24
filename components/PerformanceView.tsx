@@ -42,6 +42,21 @@ const getEmpPromoStatus = (emp: Employee): boolean => {
   const promo = (emp["Promotion \r\n(Yes / No)"] || emp["PROMOTION ELIGIBILITY FOR CURRENT YEAR ("] || emp["Current year promotion status"] || "").toString().toLowerCase();
   return promo === "yes" || promo === "true";
 };
+const getEmpSpend = (emp: Employee): number => {
+  const merit = cleanNum(emp["Merit\r\nAmount"]) || cleanNum(emp["Merit Amount"]) || 0;
+  const promo = cleanNum(emp["Promotion\r\nAmount"]) || cleanNum(emp["Promotion Amount"]) || 0;
+  const correction = cleanNum(emp["Salary\r\nCorrection"]) || cleanNum(emp["Salary Correction"]) || 0;
+  const totalInc = cleanNum(emp["Total\r\nIncrement"]) || cleanNum(emp["Total Increment"]) || 0;
+  
+  if (merit !== 0 || promo !== 0 || correction !== 0) {
+    return merit + promo + correction;
+  }
+  if (totalInc !== 0) return totalInc;
+  
+  const current = getEmpCurrentCTC(emp) || 0;
+  const revised = getEmpRevisedCTC(emp) || 0;
+  return revised > current ? revised - current : 0;
+};
 
 interface PerformanceViewProps {
   employees: Employee[];
@@ -122,6 +137,23 @@ export default function PerformanceView({
 
   const hasBudgetSummarySheet = budgetSummary && budgetSummary.length > 0;
 
+  // Extract overall budget percentage from budgetSummary sheet if present
+  let overallBudgetPct = 0.10; // Default to 10% (0.10) if not found
+  if (budgetSummary && Array.isArray(budgetSummary)) {
+    for (const row of budgetSummary) {
+      if (Array.isArray(row)) {
+        const idx = row.findIndex(cell => typeof cell === "string" && cell.toLowerCase().replace(/\s+/g, "").includes("overallbudget"));
+        if (idx !== -1 && row[idx + 1] !== undefined) {
+          const val = cleanNum(row[idx + 1]);
+          if (val !== null) {
+            overallBudgetPct = val > 1 ? val / 100 : val;
+            break;
+          }
+        }
+      }
+    }
+  }
+
   let calculatedSpend = 0;
   let totalCurrentCTC = 0;
   let promotionCount = 0;
@@ -129,12 +161,11 @@ export default function PerformanceView({
 
   filtered.forEach((emp) => {
     const current = getEmpCurrentCTC(emp) || 0;
-    const revised = getEmpRevisedCTC(emp) || 0;
+    const spend = getEmpSpend(emp);
     const func = getEmpFunction(emp);
     const isPromo = getEmpPromoStatus(emp);
 
-    const diff = revised > current ? revised - current : 0;
-    calculatedSpend += diff;
+    calculatedSpend += spend;
     totalCurrentCTC += current;
     if (isPromo) promotionCount++;
 
@@ -142,7 +173,7 @@ export default function PerformanceView({
       funcDataMap[func] = { currentCTC: 0, spend: 0, promos: 0 };
     }
     funcDataMap[func].currentCTC += current;
-    funcDataMap[func].spend += diff;
+    funcDataMap[func].spend += spend;
     if (isPromo) funcDataMap[func].promos++;
   });
 
@@ -179,7 +210,7 @@ export default function PerformanceView({
     }
 
     if (budgetKPIs.allocated === 0) {
-      budgetKPIs.allocated = totalCurrentCTC * 0.08;
+      budgetKPIs.allocated = totalCurrentCTC * overallBudgetPct;
     }
     if (budgetKPIs.spend === 0) {
       budgetKPIs.spend = calculatedSpend;
@@ -191,7 +222,7 @@ export default function PerformanceView({
     budgetKPIs.remaining = budgetKPIs.allocated - budgetKPIs.spend;
     budgetKPIs.utilization = budgetKPIs.allocated > 0 ? (budgetKPIs.spend / budgetKPIs.allocated) * 100 : 0;
   } else {
-    const calculatedBudget = totalCurrentCTC * 0.08;
+    const calculatedBudget = totalCurrentCTC * overallBudgetPct;
 
     budgetKPIs = {
       allocated: calculatedBudget,
@@ -202,39 +233,21 @@ export default function PerformanceView({
     };
   }
 
-  const predefinedBudgets: Record<string, { actual: number, spend: number }> = {
-    "N1": { actual: 5603275, spend: 4653131 },
-    "FINANCE": { actual: 2838607, spend: 2847373 },
-    "BUSINESS FINANCE": { actual: 1180645, spend: 1203772 },
-    "SALES": { actual: 5104541, spend: 4973345 },
-    "OPERATIONS": { actual: 20529762, spend: 21523787 },
-    "MCS": { actual: 3689217, spend: 3679637 },
-    "IT": { actual: 1907954, spend: 2064037 },
-    "HR": { actual: 1670752, spend: 1669438 }
-  };
-
-  funcBudgetList = Object.entries(predefinedBudgets).map(([func, data]) => {
-    let promos = 0;
-    // Find matching function in the actual data to grab promotion counts
-    for (const [originalFunc, fd] of Object.entries(funcDataMap)) {
-      const originalUpper = originalFunc.toUpperCase().trim();
-      // Ensure we don't accidentally match "FINANCE" with "BUSINESS FINANCE"
-      if (func === "FINANCE" && originalUpper.includes("BUSINESS")) continue;
-      
-      if (originalUpper.includes(func) || func.includes(originalUpper) || originalUpper === "N-1" && func === "N1") {
-         promos += fd.promos;
-      }
-    }
-
+  // Dynamically calculate budget, spend, promotions per function/department from the uploaded data
+  funcBudgetList = Object.entries(funcDataMap).map(([func, fd]) => {
+    const allocated = fd.currentCTC * overallBudgetPct;
     return {
-      func,
-      allocated: data.actual,
-      spend: data.spend,
-      remaining: data.actual - data.spend,
-      utilization: data.actual > 0 ? (data.spend / data.actual) * 100 : 0,
-      promotions: promos,
+      func: func.toUpperCase(), // Display in uppercase to match visual style
+      allocated,
+      spend: fd.spend,
+      remaining: allocated - fd.spend,
+      utilization: allocated > 0 ? (fd.spend / allocated) * 100 : 0,
+      promotions: fd.promos,
     };
   });
+
+  // Sort alphabetically by function name for clean display
+  funcBudgetList.sort((a, b) => a.func.localeCompare(b.func));
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease-in-out", fontFamily: "'Plus Jakarta Sans', -apple-system, sans-serif" }}>
@@ -363,7 +376,7 @@ export default function PerformanceView({
           <div>
             <div style={{ fontSize: "14px", fontWeight: 800, color: "#475569", marginBottom: "16px" }}>Budget vs Spend by Function</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {funcBudgetList.slice(0, 6).map((item) => {
+              {funcBudgetList.map((item) => {
                 const maxVal = Math.max(...funcBudgetList.map(i => Math.max(i.allocated, i.spend)), 1);
                 const budgetWidth = (item.allocated / maxVal) * 100;
                 const spendWidth = (item.spend / maxVal) * 100;
